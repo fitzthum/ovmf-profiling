@@ -62,7 +62,7 @@ fn start_guest(sev_enabled: bool) {
 
     let debug_log = Arc::new(Mutex::new(Vec::new()));
 
-    std::fs::remove_file(DEBUG_SOCKET);
+    let _ = std::fs::remove_file(DEBUG_SOCKET);
     let listener = UnixListener::bind(DEBUG_SOCKET).unwrap();
 
     println!("Starting Guest");
@@ -75,7 +75,7 @@ fn start_guest(sev_enabled: bool) {
 	let ten_seconds = time::Duration::from_secs(10);
 	thread::sleep(ten_seconds);
 
-	child.kill();
+	let _ = child.kill();
     handler.join().unwrap();
 
     /*
