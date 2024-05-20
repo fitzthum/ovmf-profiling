@@ -6,6 +6,8 @@ use std::os::unix::net::{UnixStream,UnixListener};
 use std::{thread, time};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
+use plotters::prelude::*;
+use plotters::style::colors;
 
 const HV_PATH: &str = "/home/tobin/qemu/build/qemu-system-x86_64";
 const KERNEL_PATH: &str = "/opt/kata/share/kata-containers/vmlinuz-confidential.container";
@@ -14,7 +16,7 @@ const FW_PATH: &str = "/home/tobin/edk2/Build/OvmfX64/DEBUG_GCC5/FV/OVMF.fd";
 
 const DEBUG_SOCKET: &str = "/tmp/ovmf_output.sock";
 fn main() {
-    start_guest(true);
+    start_guest(false);
 }
 
 fn start_guest(sev_enabled: bool) {
@@ -91,16 +93,59 @@ fn start_guest(sev_enabled: bool) {
 
     // get the times just for the keypoints
     let mut keypoint_times = HashMap::new();
+    let mut previous_end_time = 0;
 
     for (message, timestamp) in debug_log.lock().unwrap().iter() {
         for keypoint in &keypoints {
             if message.contains(keypoint) {
-                keypoint_times.insert(keypoint, timestamp);
-				print!("{} - {}\n", timestamp, keypoint);
+                keypoint_times.insert(keypoint, (previous_end_time as i32, *timestamp as i32));
+                previous_end_time = *timestamp;
+				//print!("{} - {}\n", timestamp, keypoint);
                 break;
             }
         }
     }
+        
+    // MAKE CHART
+    let (graph_title, graph_filename) = match sev_enabled {
+        true => ("OVMF Phases with SEV", "sev.png"),
+        false => ("OVMF Phases without SEV", "nosev.png"),
+    };
+
+    let root = BitMapBackend::new(graph_filename, (900, 300)).into_drawing_area();
+    root.fill(&WHITE).unwrap();
+
+    let mut chart = ChartBuilder::on(&root)
+        .caption(graph_title, ("sans-serif", 20).into_font())
+        .margin(5)
+        .x_label_area_size(30)
+        .y_label_area_size(30)
+        .build_cartesian_2d(0..5000, 0..2).unwrap();
+
+    chart.configure_mesh().draw().unwrap();
+
+    let height = 1;
+    let colors = [colors::CYAN, colors::GREEN, colors::MAGENTA, colors::RED];
+
+    for (i, (name, (start, end))) in keypoint_times.iter().enumerate() {
+        //let (name, (start, end)) = keypoint;
+
+        let color = colors[i];
+        chart
+            .draw_series(std::iter::once(Rectangle::new(
+                [(*start, height), (*end, 0)],
+                color.filled(),
+            ))).unwrap()
+            .label(&***name)
+            .legend(move |(x, y)| Rectangle::new([(x, y - 5),(x + 10, y + 5)], color.filled()));
+    }
+
+    chart
+        .configure_series_labels()
+        .draw().unwrap();
+
+    root.present().unwrap();
+
 }
 
 fn handle_debug(stream: UnixStream, debug_log: Arc<Mutex<Vec<(String, u128)>>>) {
