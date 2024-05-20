@@ -7,44 +7,52 @@ use std::{thread, time};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 
-const HV_PATH: &str = "/home/tobin/qemu/build/qemu-system-x86_64"; 
+const HV_PATH: &str = "/home/tobin/qemu/build/qemu-system-x86_64";
 const KERNEL_PATH: &str = "/opt/kata/share/kata-containers/vmlinuz-confidential.container";
 const INITRD_PATH: &str = "/home/tobin/kata-containers/tools/osbuilder/initrd-builder/kata-containers-initrd.img";
 const FW_PATH: &str = "/home/tobin/edk2/Build/OvmfX64/DEBUG_GCC5/FV/OVMF.fd";
 
 const DEBUG_SOCKET: &str = "/tmp/ovmf_output.sock";
 fn main() {
-    start_guest();
+    start_guest(false);
 }
 
-fn start_guest() {
-    let guest_name = "direct-nosev";
-
+fn start_guest(sev_enabled: bool) {
     let mut cmd = Command::new("sudo");
+
     cmd.arg(HV_PATH);
-    cmd.args(["-name",guest_name]);
-    cmd.args(["-machine","q35,accel=kvm,kernel_irqchip=split"]);
+
+    if sev_enabled {
+        // todo
+    }
+    else {
+        cmd.args(["-name","direct-nosev"]);
+        cmd.args(["-machine","q35,accel=kvm,kernel_irqchip=split"]);
+    }
+
+    // basic guest properties
     cmd.arg("-enable-kvm");
     cmd.args(["-cpu","EPYC-v4"]);
     cmd.args(["-smp","2"]);
     cmd.args(["-m","512"]);
-    
+
+    // artifacts
+    cmd.args(["-initrd",INITRD_PATH]);
+    cmd.args(["-kernel",KERNEL_PATH]);
+    cmd.args(["-append","\"console=ttyS0\""]);
+
+    let fw_drive = format!("if=pflash,format=raw,readonly=on,file={}",FW_PATH);
+    cmd.args(["-drive",&fw_drive]);
+
+    // devices
+    cmd.arg("-nographic");
     cmd.args(["-device","virtio-scsi-pci,id=scsi,disable-legacy=on,iommu_platform=true"]);
     cmd.args(["-chardev","file,id=char0,path=serial-output.txt"]);
-    cmd.arg("-nographic");
     cmd.args(["-serial","chardev:char0"]);
 
-    // send fw debug output to unix socket
     let debug_dev = format!("socket,path={},id=fwdbg", DEBUG_SOCKET);
     cmd.args(["-chardev", &debug_dev]);
     cmd.args(["-device", "isa-debugcon,iobase=0x402,chardev=fwdbg"]);
-
-    cmd.args(["-kernel",KERNEL_PATH]);
-    cmd.args(["-append","\"console=ttyS0\""]);
-    cmd.args(["-initrd",INITRD_PATH]);
-    
-    let fw_drive = format!("if=pflash,format=raw,readonly=on,file={}",FW_PATH);
-    cmd.args(["-drive",&fw_drive]);
 
     cmd.stdout(Stdio::null());
 
@@ -62,7 +70,7 @@ fn start_guest() {
 
 	let ten_seconds = time::Duration::from_secs(10);
 	thread::sleep(ten_seconds);
-	
+
 	child.kill();
     handler.join().unwrap();
 
