@@ -14,7 +14,7 @@ const FW_PATH: &str = "/home/tobin/edk2/Build/OvmfX64/DEBUG_GCC5/FV/OVMF.fd";
 
 const DEBUG_SOCKET: &str = "/tmp/ovmf_output.sock";
 fn main() {
-    start_guest(false);
+    start_guest(true);
 }
 
 fn start_guest(sev_enabled: bool) {
@@ -23,7 +23,9 @@ fn start_guest(sev_enabled: bool) {
     cmd.arg(HV_PATH);
 
     if sev_enabled {
-        // todo
+        cmd.args(["-name","direct-snp"]);
+        cmd.args(["-machine","q35,accel=kvm,kernel_irqchip=split,confidential-guest-support=sev0"]);
+        cmd.args(["-object","sev-snp-guest,id=sev0,policy=0x30000,kernel-hashes=off,reduced-phys-bits=5,cbitpos=51"]);
     }
     else {
         cmd.args(["-name","direct-nosev"]);
