@@ -17,6 +17,7 @@ const FW_PATH: &str = "/home/tobin/edk2/Build/OvmfX64/DEBUG_GCC5/FV/OVMF.fd";
 const DEBUG_SOCKET: &str = "/tmp/ovmf_output.sock";
 fn main() {
     start_guest(false);
+    start_guest(true);
 }
 
 fn start_guest(sev_enabled: bool) {
@@ -86,9 +87,11 @@ fn start_guest(sev_enabled: bool) {
 
     // the log entries that define each phase
     let keypoints = vec![
-        "SecCoreStartupWithStack",
-        "Platform PEIM Loaded",
-        "MpInitChangeApLoopCallback() done!",
+        "SecCoreStartupWithStack", // the start of the log
+        "Platform PEIM Loaded", // start of PEI?
+        "Loading DXE CORE", // start of DXE
+        "[Variable]END_OF_DXE is signaled", // end of DXE
+        "MpInitChangeApLoopCallback() done!", // end of log
     ];
 
     // get the times just for the keypoints
@@ -125,7 +128,7 @@ fn start_guest(sev_enabled: bool) {
     chart.configure_mesh().draw().unwrap();
 
     let height = 1;
-    let colors = [colors::CYAN, colors::GREEN, colors::MAGENTA, colors::RED];
+    let colors = [colors::CYAN, colors::GREEN, colors::MAGENTA, colors::RED, colors::YELLOW, colors::BLACK];
 
     for (i, (name, (start, end))) in keypoint_times.iter().enumerate() {
         //let (name, (start, end)) = keypoint;
