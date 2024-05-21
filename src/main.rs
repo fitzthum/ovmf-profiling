@@ -5,7 +5,6 @@ use std::io::{BufRead, BufReader};
 use std::os::unix::net::{UnixStream,UnixListener};
 use std::{thread, time};
 use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
 use plotters::prelude::*;
 use plotters::style::colors;
 
@@ -95,13 +94,13 @@ fn start_guest(sev_enabled: bool) {
     ];
 
     // get the times just for the keypoints
-    let mut keypoint_times = HashMap::new();
+    let mut keypoint_times = vec![];
     let mut previous_end_time = 0;
 
     for (message, timestamp) in debug_log.lock().unwrap().iter() {
         for keypoint in &keypoints {
             if message.contains(keypoint) {
-                keypoint_times.insert(keypoint, (previous_end_time as i32, *timestamp as i32));
+                keypoint_times.push((keypoint, (previous_end_time as i32, *timestamp as i32)));
                 previous_end_time = *timestamp;
 				//print!("{} - {}\n", timestamp, keypoint);
                 break;
