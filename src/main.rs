@@ -13,25 +13,48 @@ const KERNEL_PATH: &str = "/opt/kata/share/kata-containers/vmlinuz-confidential.
 const INITRD_PATH: &str = "/home/tobin/kata-containers/tools/osbuilder/initrd-builder/kata-containers-initrd.img";
 const FW_PATH: &str = "/home/tobin/edk2/Build/OvmfX64/DEBUG_GCC5/FV/OVMF.fd";
 
-const DEBUG_SOCKET: &str = "/tmp/ovmf_output.sock";
-fn main() {
-    start_guest(false);
-    start_guest(true);
+
+pub enum GuestType {
+    NoSev,
+    Sev,
+    SevEs,
+    Snp,
 }
 
-fn start_guest(sev_enabled: bool) {
+const DEBUG_SOCKET: &str = "/tmp/ovmf_output.sock";
+fn main() {
+    start_guest(GuestType::NoSev);
+    start_guest(GuestType::Sev);
+    start_guest(GuestType::SevEs);
+    start_guest(GuestType::Snp);
+}
+
+fn start_guest(guest_type: GuestType) {
     let mut cmd = Command::new("sudo");
 
     cmd.arg(HV_PATH);
 
-    if sev_enabled {
-        cmd.args(["-name","direct-snp"]);
-        cmd.args(["-machine","q35,accel=kvm,kernel_irqchip=split,confidential-guest-support=sev0"]);
-        cmd.args(["-object","sev-snp-guest,id=sev0,policy=0x30000,kernel-hashes=off,reduced-phys-bits=5,cbitpos=51"]);
-    }
-    else {
-        cmd.args(["-name","direct-nosev"]);
-        cmd.args(["-machine","q35,accel=kvm,kernel_irqchip=split"]);
+    match guest_type {
+        GuestType::Snp => {
+            cmd.args(["-name","direct-snp"]);
+            cmd.args(["-machine","q35,accel=kvm,kernel_irqchip=split,confidential-guest-support=sev0"]);
+            cmd.args(["-object","sev-snp-guest,id=sev0,policy=0x30000,kernel-hashes=off,reduced-phys-bits=5,cbitpos=51"]);
+        },
+        GuestType::NoSev => {
+            cmd.args(["-name","direct-nosev"]);
+            cmd.args(["-machine","q35,accel=kvm,kernel_irqchip=split"]);
+        },
+        GuestType::Sev => {
+            cmd.args(["-name","direct-sev"]);
+            cmd.args(["-machine","q35,accel=kvm,kernel_irqchip=split,confidential-guest-support=sev0"]);
+            cmd.args(["-object","sev-guest,id=sev0,cbitpos=51,reduced-phys-bits=1,policy=0x0"]);
+        },
+        GuestType::SevEs => {
+            cmd.args(["-name","direct-seves"]);
+            cmd.args(["-machine","q35,accel=kvm,kernel_irqchip=split,confidential-guest-support=sev0"]);
+            cmd.args(["-object","sev-guest,id=sev0,cbitpos=51,reduced-phys-bits=1,policy=0x4"]);
+        },
+
     }
 
     // basic guest properties
@@ -109,9 +132,11 @@ fn start_guest(sev_enabled: bool) {
     }
         
     // MAKE CHART
-    let (graph_title, graph_filename) = match sev_enabled {
-        true => ("OVMF Phases with SEV", "sev.png"),
-        false => ("OVMF Phases without SEV", "nosev.png"),
+    let (graph_title, graph_filename) = match guest_type {
+        GuestType::Snp => ("OVMF Phases with SNP", "snp.png"),
+        GuestType::NoSev => ("OVMF Phases without SEV", "nosev.png"),
+        GuestType::Sev => ("OVMF Phases with SEV", "sev.png"),
+        GuestType::SevEs => ("OVMF Phases with SEV-ES", "seves.png"),
     };
 
     let root = BitMapBackend::new(graph_filename, (900, 300)).into_drawing_area();
@@ -122,7 +147,7 @@ fn start_guest(sev_enabled: bool) {
         .margin(5)
         .x_label_area_size(30)
         .y_label_area_size(30)
-        .build_cartesian_2d(0..5000, 0..2).unwrap();
+        .build_cartesian_2d(0..7000, 0..2).unwrap();
 
     chart.configure_mesh().draw().unwrap();
 
