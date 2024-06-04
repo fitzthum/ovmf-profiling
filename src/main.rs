@@ -47,12 +47,12 @@ fn start_guest(guest_type: GuestType) {
         GuestType::Sev => {
             cmd.args(["-name","direct-sev"]);
             cmd.args(["-machine","q35,accel=kvm,kernel_irqchip=split,confidential-guest-support=sev0"]);
-            cmd.args(["-object","sev-guest,id=sev0,cbitpos=51,reduced-phys-bits=1,policy=0x0"]);
+            cmd.args(["-object","sev-guest,id=sev0,cbitpos=51,reduced-phys-bits=1,policy=0x1"]);
         },
         GuestType::SevEs => {
             cmd.args(["-name","direct-seves"]);
             cmd.args(["-machine","q35,accel=kvm,kernel_irqchip=split,confidential-guest-support=sev0"]);
-            cmd.args(["-object","sev-guest,id=sev0,cbitpos=51,reduced-phys-bits=1,policy=0x4"]);
+            cmd.args(["-object","sev-guest,id=sev0,cbitpos=51,reduced-phys-bits=1,policy=0x5"]);
         },
 
     }
@@ -62,6 +62,7 @@ fn start_guest(guest_type: GuestType) {
     cmd.args(["-cpu","EPYC-v4"]);
     cmd.args(["-smp","2"]);
     cmd.args(["-m","512"]);
+    //cmd.args(["-m","64G"]);
 
     // artifacts
     cmd.args(["-initrd",INITRD_PATH]);
@@ -101,19 +102,20 @@ fn start_guest(guest_type: GuestType) {
 	let _ = child.kill();
     handler.join().unwrap();
 
-    /*
     for line in debug_log.lock().unwrap().iter() {
         println!("{}",  line.0);
     }
-    */
 
     // the log entries that define each phase
     let keypoints = vec![
         "SecCoreStartupWithStack", // the start of the log
         "Platform PEIM Loaded", // start of PEI?
         "Loading DXE CORE", // start of DXE
-        "[Variable]END_OF_DXE is signaled", // end of DXE
-        "MpInitChangeApLoopCallback() done!", // end of log
+        //"EekDxeMain1", // start of DXE
+        //"[Variable]END_OF_DXE is signaled", // end of DXE
+        "EekDxeMain3", // end of DXE
+        //"MpInitChangeApLoopCallback() done!", // end of log
+        "EekBds2", // end of log
     ];
 
     // get the times just for the keypoints
@@ -125,7 +127,7 @@ fn start_guest(guest_type: GuestType) {
             if message.contains(keypoint) {
                 keypoint_times.push((keypoint, (previous_end_time as i32, *timestamp as i32)));
                 previous_end_time = *timestamp;
-				//print!("{} - {}\n", timestamp, keypoint);
+				println!("{} - {}", timestamp, keypoint);
                 break;
             }
         }
@@ -147,7 +149,9 @@ fn start_guest(guest_type: GuestType) {
         .margin(5)
         .x_label_area_size(30)
         .y_label_area_size(30)
-        .build_cartesian_2d(0..7000, 0..2).unwrap();
+        //.build_cartesian_2d(0..7000, 0..2).unwrap();
+        //.build_cartesian_2d(0..2500000, 0..2).unwrap();
+        .build_cartesian_2d(0..20000000, 0..2).unwrap();
 
     chart.configure_mesh().draw().unwrap();
 
@@ -178,11 +182,15 @@ fn start_guest(guest_type: GuestType) {
 fn handle_debug(stream: UnixStream, debug_log: Arc<Mutex<Vec<(String, u128)>>>) {
 	let stream = BufReader::new(stream);
 
-    let now = time::Instant::now();
+    //let now = time::Instant::now();
 
 	for line in stream.lines() {
-        let elapsed = now.elapsed().as_millis();
-        debug_log.lock().unwrap().push((line.unwrap(), elapsed));
+        //let elapsed = now.elapsed().as_millis();
+
+        if let Ok(l) = line {
+            let parts = l.split(" TICKS=").collect::<Vec<_>>();
+            debug_log.lock().unwrap().push((parts[0].to_string(), parts[1].parse().unwrap()));
+        }
 	}
 
 }
