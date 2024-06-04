@@ -61,7 +61,7 @@ fn start_guest(guest_type: GuestType) {
     cmd.arg("-enable-kvm");
     cmd.args(["-cpu","EPYC-v4"]);
     cmd.args(["-smp","2"]);
-    cmd.args(["-m","512"]);
+    cmd.args(["-m","512M,slots=10,maxmem=257720M"]);
     //cmd.args(["-m","64G"]);
 
     // artifacts
@@ -81,6 +81,9 @@ fn start_guest(guest_type: GuestType) {
     let debug_dev = format!("socket,path={},id=fwdbg", DEBUG_SOCKET);
     cmd.args(["-chardev", &debug_dev]);
     cmd.args(["-device", "isa-debugcon,iobase=0x402,chardev=fwdbg"]);
+
+    // add stuff used by kata
+
 
     cmd.stdout(Stdio::null());
 
