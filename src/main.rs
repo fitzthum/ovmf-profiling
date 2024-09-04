@@ -13,6 +13,7 @@ const KERNEL_PATH: &str = "/opt/kata/share/kata-containers/vmlinuz-confidential.
 const INITRD_PATH: &str =
     "/home/tobin/kata-containers/tools/osbuilder/initrd-builder/kata-containers-initrd.img";
 const FW_PATH: &str = "/home/tobin/edk2/Build/OvmfX64/DEBUG_GCC5/FV/OVMF.fd";
+//const FW_PATH: &str = "/home/tobin/edk2/Build/OvmfX64/DEBUG_GCC5/FV/AMDSEV.fd";
 
 const DEBUG_SOCKET: &str = "/tmp/ovmf_output.sock";
 const QMP_SOCKET: &str = "/tmp/ovmf_qmp.sock";
@@ -45,6 +46,22 @@ impl ChartConfig for BasicChart {
             "EekDxeMain3".to_string(), // end of DXE
             //"EekBds1".to_string(), // start of BDS
             //"MpInitChangeApLoopCallback() done!".to_string(), // end of log
+            "EekBds2".to_string(), // random place towards end of BDS
+        ]
+    }
+}
+
+struct BdsChart {} 
+
+// for drilling into the latency in the BDS phase
+impl ChartConfig for BdsChart {
+    fn to_keypoints() -> Vec<String> {
+        vec![
+            "Loading DXE CORE".to_string(), // start of DXE
+            "EekBds1".to_string(), // start of BDS
+            "EekBdsx4".to_string(), // before PlatformBootManagerBeforeConsole ();
+            "EekBdsx5".to_string(), // fter PlatformBootManagerBeforeConsole ();
+            "EekBdsx6".to_string(), // before EfiBootManagerConnectAllDefaultConsoles
             "EekBds2".to_string(), // random place towards end of BDS
         ]
     }
@@ -104,7 +121,7 @@ impl ConfigFragment for BasicGuest {
         // basic guest properties
         cmd.arg("-enable-kvm");
         cmd.args(["-cpu", "EPYC-v4"]);
-        cmd.args(["-smp", "2"]);
+        cmd.args(["-smp", "1"]);
         cmd.args(["-m", "512M,slots=10,maxmem=257720M"]);
         //cmd.args(["-m","64G"]);
 
@@ -118,6 +135,10 @@ impl ConfigFragment for BasicGuest {
 
         // devices
         cmd.arg("-nographic");
+
+        let debug_dev = format!("socket,path={},id=fwdbg", DEBUG_SOCKET);
+        cmd.args(["-chardev", &debug_dev]);
+        cmd.args(["-device", "isa-debugcon,iobase=0x402,chardev=fwdbg"]);
 
         cmd
     }
@@ -136,10 +157,6 @@ impl ConfigFragment for KataGuest {
         cmd.args(["-chardev", "file,id=char0,path=serial-output.txt"]);
         cmd.args(["-serial", "chardev:char0"]);
 
-        let debug_dev = format!("socket,path={},id=fwdbg", DEBUG_SOCKET);
-        cmd.args(["-chardev", &debug_dev]);
-        cmd.args(["-device", "isa-debugcon,iobase=0x402,chardev=fwdbg"]);
-
         // add stuff used by kata
         cmd.args(["-device", "pci-bridge,bus=pcie.0,id=pci-bridge-0,chassis_nr=1,shpc=off,addr=4,io-reserve=4k,mem-reserve=1m,pref64-reserve=1m"]);
 
@@ -148,14 +165,17 @@ impl ConfigFragment for KataGuest {
             "virtio-serial-pci,disable-modern=false,id=serial0",
         ]);
         cmd.args(["-object", "rng-random,id=rng0,filename=/dev/urandom"]);
+        //cmd.args(["-object", "rng-random,id=rng0,filename=/dev/null"]);
+        //cmd.args(["-object", "rng-random,id=rng0,filename=/dev/hwrng"]);
         cmd.args(["-device", "virtio-rng-pci,rng=rng0"]);
         cmd.args(["-global", "kvm-pit.lost_tick_policy=discard"]);
 
         // slows down non-sev for some reason.
         // otherwise no effect
+        /*
         let qmp = format!("unix:{},server=on,wait=off", QMP_SOCKET);
         cmd.args(["-qmp", &qmp]);
-
+        */
         // chardev for kata-shared
         // (requires some vhost setup?)
 
@@ -164,14 +184,16 @@ impl ConfigFragment for KataGuest {
         //cmd.args(["-device","vhost-user-fs-pci,chardev=char-shared,tag=kataShared,queue-size=1024"]);
 
         // not significant
-        cmd.args(["-rtc", "base=utc,driftfix=slew,clock=host"]);
+        // cmd.args(["-rtc", "base=utc,driftfix=slew,clock=host"]);
 
         // networking. no change
+        /*
         cmd.args([
             "-netdev",
             "tap,id=network-0,script=qemu-ifup,downscript=no,ifname=\"tap0\",vhost=on",
         ]);
         cmd.args(["-device", "driver=virtio-net-pci,netdev=network-0,mac=ba:2f:08:16:18:aa,disable-modern=false,mq=on,vectors=4"]);
+        */
 
         // shared memory. no change
         cmd.args([
@@ -181,27 +203,29 @@ impl ConfigFragment for KataGuest {
         cmd.args(["-numa", "node,memdev=dimm1"]);
 
         // virtconsole
+        /*
         cmd.args(["-device", "virtconsole,chardev=charconsole0,id=console0"]);
         let chardev = format!(
             "socket,id=charconsole0,path={},server=on,wait=off",
             CHARDEV_SOCK
         );
         cmd.args(["-chardev", &chardev]);
-
+        */
         cmd
     }
 }
 
 fn main() {
-    start_guest(GuestType::NoSev);
-    start_guest(GuestType::Sev);
+    //start_guest(GuestType::NoSev);
+    //start_guest(GuestType::Sev);
     start_guest(GuestType::SevEs);
-    start_guest(GuestType::Snp);
+    //start_guest(GuestType::Snp);
 }
 
 fn start_guest(guest_type: GuestType) {
     // Generate QEMU Command
     let mut cmd = KataGuest::to_command(&guest_type);
+    //let mut cmd = BasicGuest::to_command(&guest_type);
 
     // Create Unix listener to capture output
     let _ = std::fs::remove_file(DEBUG_SOCKET);
@@ -235,7 +259,8 @@ fn start_guest(guest_type: GuestType) {
 }
 
 fn make_chart(debug_log: Arc<Mutex<Vec<(String, u128)>>>, guest_type: GuestType) {
-    let keypoints = BasicChart::to_keypoints();
+    //let keypoints = BasicChart::to_keypoints();
+    let keypoints = BdsChart::to_keypoints();
 
     // the log entries that define each phase
     // get the times just for the keypoints
@@ -254,7 +279,9 @@ fn make_chart(debug_log: Arc<Mutex<Vec<(String, u128)>>>, guest_type: GuestType)
 
                 keypoint_times.push((keypoint, (previous_end_time as i32, timestamp as i32)));
                 previous_end_time = timestamp;
-                println!("{} - {}", timestamp, keypoint);
+                if VERBOSE {
+                    println!("{} - {}", timestamp, keypoint);
+                }
                 break;
             }
         }
@@ -278,7 +305,7 @@ fn make_chart(debug_log: Arc<Mutex<Vec<(String, u128)>>>, guest_type: GuestType)
         .y_label_area_size(30)
         //.build_cartesian_2d(0..7000, 0..2).unwrap();
         //.build_cartesian_2d(0..2500000, 0..2).unwrap();
-        .build_cartesian_2d(0..20000000, 0..2)
+        .build_cartesian_2d(0..25000000, 0..2)
         .unwrap();
 
     chart.configure_mesh().draw().unwrap();
@@ -321,11 +348,14 @@ fn handle_debug(stream: UnixStream, debug_log: Arc<Mutex<Vec<(String, u128)>>>) 
         //let elapsed = now.elapsed().as_millis();
 
         if let Ok(l) = line {
+            println!("debug output: {}", l.clone());
             let parts = l.split(" TICKS=").collect::<Vec<_>>();
-            debug_log
-                .lock()
-                .unwrap()
-                .push((parts[0].to_string(), parts[1].parse().unwrap()));
+            if parts.len() == 2 {
+                debug_log
+                    .lock()
+                    .unwrap()
+                    .push((parts[0].to_string(), parts[1].parse().unwrap()));
+            }
         }
     }
 }
